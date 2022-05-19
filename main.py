@@ -1,10 +1,10 @@
 import os
 import torch
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 from datetime import datetime
-from models.handler import train, test
+from stemgnn.handler import train, test
 import argparse
 import pandas as pd
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=True)

@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 
-from data_loader.forecast_dataloader import ForecastDataset, de_normalized
-from models.base_model import Model
+from stemgnn.utils.data import ForecastDataset, de_normalized
+from stemgnn.model.base import Model
 import torch
 import torch.nn as nn
 import torch.utils.data as torch_data
@@ -10,7 +10,7 @@ import numpy as np
 import time
 import os
 
-from utils.math_utils import evaluate
+from stemgnn.utils.math_utils import evaluate
 
 
 def save_model(model, model_dir, epoch=None):
