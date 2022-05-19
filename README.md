@@ -1,23 +1,25 @@
 # Spectral Temporal Graph Neural Network for Multivariate Time-series Forecasting
 
-This repository is the official implementation of Spectral Temporal Graph Neural Network for
-Multivariate Time-series Forecasting.
+This repository is a forked implementation of Spectral Temporal Graph Neural Network for
+Multivariate Time-series Forecasting. The original repository is available at https://github.com/microsoft/StemGNN.
 
 ## Requirements
 
-Recommended version of OS & Python:
+Recommended version of Python:
 
-* **OS**: Ubuntu 18.04.2 LTS
-* **Python**: python3.7 ([instructions to install python3.7](https://linuxize.com/post/how-to-install-python-3-7-on-ubuntu-18-04/)).
+* **Python**: Python 3.8 or higher.
 
-To install python dependencies, virtualenv is recommended, `sudo apt install python3.7-venv` to install virtualenv for python3.7. All the python dependencies are verified for `pip==20.1.1` and `setuptools==41.2.0`. Run the following commands to create a venv and install python dependencies:
+To install Python dependencies, virtualenv or conda environment is recommended. For poetry installation instructions, 
+check [this link](https://python-poetry.org/docs/). Before running the following steps, ensure that your environment
+is activated.
 
 ```setup
-python3.7 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+poetry install
 ```
+
+----------
+
+# _Original Data Description_
 
 ## Datasets
 
