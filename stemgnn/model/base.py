@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+
 from torchmetrics.regression.mae import MeanAbsoluteError
 from torchmetrics.regression.mape import MeanAbsolutePercentageError
 from torchmetrics.regression.mse import MeanSquaredError
@@ -205,6 +206,7 @@ class StemGNN(pl.LightningModule):
         forecast, _ = self(X)
         loss = self.loss_fn(forecast, y)
         self.log(r'train/loss', loss, prog_bar=True, on_step=True, on_epoch=True)
+        return loss
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int = 0) -> Dict[str, torch.Tensor]:
         X, y = batch
