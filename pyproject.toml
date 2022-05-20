@@ -13,13 +13,17 @@ torch = "^1.11.0"
 pandas = "^1.4.2"
 scipy = "^1.8.1"
 numpy = "^1.22.3"
+matplotlib = "^3.5.2"
+pytorch-lightning = "^1.6.3"
+torchmetrics = "^0.8.2"
 
 [tool.poetry.dev-dependencies]
 jupyter = "^1.0.0"
 poethepoet = "^0.10.0"
+pytest = "^7.1.2"
 
 [tool.poe.tasks]
-force-cuda11 = "python -m pip install torch==1.11.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html"
+force-cuda11 = "python -m pip install torch==1.11.0+cu113 -f https://download.pytorch.org/whl/torch_stable.html"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

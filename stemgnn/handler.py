@@ -104,38 +104,17 @@ def train(train_data, valid_data, args, result_file):
     node_cnt = train_data.shape[1]
     model = Model(node_cnt, 2, args.window_size, args.multi_layer, horizon=args.horizon)
     model.to(args.device)
-    if len(train_data) == 0:
-        raise Exception('Cannot organize enough training data')
-    if len(valid_data) == 0:
-        raise Exception('Cannot organize enough validation data')
-
-    if args.norm_method == 'z_score':
-        train_mean = np.mean(train_data, axis=0)
-        train_std = np.std(train_data, axis=0)
-        normalize_statistic = {"mean": train_mean.tolist(), "std": train_std.tolist()}
-    elif args.norm_method == 'min_max':
-        train_min = np.min(train_data, axis=0)
-        train_max = np.max(train_data, axis=0)
-        normalize_statistic = {"min": train_min.tolist(), "max": train_max.tolist()}
-    else:
-        normalize_statistic = None
-    if normalize_statistic is not None:
-        with open(os.path.join(result_file, 'norm_stat.json'), 'w') as f:
-            json.dump(normalize_statistic, f)
 
     if args.optimizer == 'RMSProp':
         my_optim = torch.optim.RMSprop(params=model.parameters(), lr=args.lr, eps=1e-08)
+    if args.optimizer == "SGD":
+        my_optim = torch.optim.SGD(params=model.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4)
+    if args.optimizer == "Adam":
+        my_optim = torch.optim.Adam(params=model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08)
     else:
         my_optim = torch.optim.Adam(params=model.parameters(), lr=args.lr, betas=(0.9, 0.999))
     my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=my_optim, gamma=args.decay_rate)
 
-    train_set = ForecastDataset(train_data, window_size=args.window_size, horizon=args.horizon,
-                                normalize_method=args.norm_method, norm_statistic=normalize_statistic)
-    valid_set = ForecastDataset(valid_data, window_size=args.window_size, horizon=args.horizon,
-                                normalize_method=args.norm_method, norm_statistic=normalize_statistic)
-    train_loader = torch_data.DataLoader(train_set, batch_size=args.batch_size, drop_last=False, shuffle=True,
-                                         num_workers=0)
-    valid_loader = torch_data.DataLoader(valid_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     forecast_loss = nn.MSELoss(reduction='mean').to(args.device)
 

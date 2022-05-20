@@ -2,13 +2,16 @@ import torch.utils.data as torch_data
 import numpy as np
 import torch
 import pandas as pd
+import pytorch_lightning as pl
+
+from typing import Union, Dict
 
 
 def normalized(data, normalize_method, norm_statistic=None):
     if normalize_method == 'min_max':
         if not norm_statistic:
             norm_statistic = dict(max=np.max(data, axis=0), min=np.min(data, axis=0))
-        scale = norm_statistic['max'] - norm_statistic['min'] + 1e-5
+        scale = np.array(norm_statistic['max']) - np.array(norm_statistic['min']) + 1e-5
         data = (data - norm_statistic['min']) / scale
         data = np.clip(data, 0.0, 1.0)
     elif normalize_method == 'z_score':
@@ -26,7 +29,7 @@ def de_normalized(data, normalize_method, norm_statistic):
     if normalize_method == 'min_max':
         if not norm_statistic:
             norm_statistic = dict(max=np.max(data, axis=0), min=np.min(data, axis=0))
-        scale = norm_statistic['max'] - norm_statistic['min'] + 1e-8
+        scale = np.array(norm_statistic['max']) - np.array(norm_statistic['min']) + 1e-5
         data = data * scale + norm_statistic['min']
     elif normalize_method == 'z_score':
         if not norm_statistic:
@@ -39,7 +42,7 @@ def de_normalized(data, normalize_method, norm_statistic):
 
 
 class ForecastDataset(torch_data.Dataset):
-    def __init__(self, df, window_size, horizon, normalize_method=None, norm_statistic=None, interval=1):
+    def __init__(self, df, window_size, horizon, normalize_method="min_max", norm_statistic=None, interval=1):
         self.window_size = window_size
         self.interval = interval
         self.horizon = horizon
@@ -71,3 +74,76 @@ class ForecastDataset(torch_data.Dataset):
         x_index_set = range(self.window_size, self.df_length - self.horizon + 1)
         x_end_idx = [x_index_set[j * self.interval] for j in range((len(x_index_set)) // self.interval)]
         return x_end_idx
+
+
+class ForecastDataModule(pl.LightningDataModule):
+    def __init__(
+            self, 
+            data: Union[pd.DataFrame, np.ndarray], 
+            batch_size: int = 32,
+            window_size: int = 10, 
+            horizon: int = 1, 
+            train_ratio: float = 0.8,
+            valid_test_ratio: float = 0.7,
+            normalize_method: str = "min_max",
+            interval: int = 1,
+            num_workers: int = 4,
+        ):
+        super().__init__()
+        self.save_hyperparameters()
+
+        if isinstance(data, pd.DataFrame):
+            self.data = data.to_numpy()
+        else:
+            self.data = data
+
+        # Split data
+        train_ratio = train_ratio if train_ratio < 1 else 1
+        valid_ratio = (1 - train_ratio) * valid_test_ratio
+        train_data = data[:int(train_ratio * len(data))]
+        valid_data = data[int(train_ratio * len(data)):int((train_ratio + valid_ratio) * len(data))]
+        test_data = data[int((train_ratio + valid_ratio) * len(data)):]
+
+        # Normalize data
+        if normalize_method.lower() == "z_score":
+            train_mean = np.mean(train_data, axis=0)
+            train_std = np.std(train_data, axis=0)
+            normalize_statistic = {"mean": train_mean.tolist(), "std": train_std.tolist()}
+        elif normalize_method == 'min_max':
+            train_min = np.min(train_data, axis=0)
+            train_max = np.max(train_data, axis=0)
+            normalize_statistic = {"min": train_min.tolist(), "max": train_max.tolist()}
+        else:
+            raise ValueError(f"Unsupported normalize method: {normalize_method}")
+
+        # Create datasets
+        self.train_dataset = ForecastDataset(train_data, window_size, horizon, normalize_method, normalize_statistic, interval)
+        self.valid_dataset = ForecastDataset(valid_data, window_size, horizon, normalize_method, normalize_statistic, interval)
+        self.test_dataset = ForecastDataset(test_data, window_size, horizon, normalize_method, normalize_statistic, interval)
+
+    def train_dataloader(self) -> torch_data.DataLoader:
+        return torch_data.DataLoader(
+            self.train_dataset, 
+            batch_size=self.hparams.batch_size, 
+            drop_last=False, 
+            shuffle=True,
+            num_workers=self.hparams.num_workers
+        )
+
+    def val_dataloader(self) -> torch_data.DataLoader:
+        return torch_data.DataLoader(
+            self.valid_dataset, 
+            batch_size=self.hparams.batch_size, 
+            drop_last=False, 
+            shuffle=False,
+            num_workers=self.hparams.num_workers
+        )
+
+    def test_dataloader(self) -> torch_data.DataLoader:
+        return torch_data.DataLoader(
+            self.test_dataset, 
+            batch_size=self.hparams.batch_size, 
+            drop_last=False, 
+            shuffle=False,
+            num_workers=self.hparams.num_workers
+        )

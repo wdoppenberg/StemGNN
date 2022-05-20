@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pytorch_lightning as pl
+from torchmetrics.regression.mae import MeanAbsoluteError
+from torchmetrics.regression.mape import MeanAbsolutePercentageError
+from torchmetrics.regression.mse import MeanSquaredError
+
+from typing import Dict, Tuple
 
 
 class GLU(nn.Module):
@@ -79,33 +85,45 @@ class StockBlockLayer(nn.Module):
         return forecast, backcast_source
 
 
-class Model(nn.Module):
-    def __init__(self, units, stack_cnt, time_step, multi_layer, horizon=1, dropout_rate=0.5, leaky_rate=0.2,
-                 device='cpu'):
-        super(Model, self).__init__()
-        self.unit = units
-        self.stack_cnt = stack_cnt
-        self.unit = units
-        self.alpha = leaky_rate
-        self.time_step = time_step
-        self.horizon = horizon
-        self.weight_key = nn.Parameter(torch.zeros(size=(self.unit, 1)))
+class StemGNN(pl.LightningModule):
+    def __init__(
+            self,
+            node_count: int,
+            stack_cnt: int, 
+            time_step: int, 
+            multi_layer: int, 
+            horizon: int = 1, 
+            dropout_rate: float = 0.5, 
+            leaky_rate: float = 0.2,
+            loss_fn_mod: nn.Module = nn.MSELoss,
+            learning_rate: float = 0.0001,
+            weight_decay: float = 1e-5,
+            momentum: float = 0.9,
+        ):
+        super(StemGNN, self).__init__()
+        self.save_hyperparameters()
+
+        self.weight_key = nn.Parameter(torch.zeros(size=(self.hparams.node_count, 1)))
         nn.init.xavier_uniform_(self.weight_key.data, gain=1.414)
-        self.weight_query = nn.Parameter(torch.zeros(size=(self.unit, 1)))
+        self.weight_query = nn.Parameter(torch.zeros(size=(self.hparams.node_count, 1)))
         nn.init.xavier_uniform_(self.weight_query.data, gain=1.414)
-        self.GRU = nn.GRU(self.time_step, self.unit)
+        self.GRU = nn.GRU(self.hparams.time_step, self.hparams.node_count)
         self.multi_layer = multi_layer
         self.stock_block = nn.ModuleList()
         self.stock_block.extend(
-            [StockBlockLayer(self.time_step, self.unit, self.multi_layer, stack_cnt=i) for i in range(self.stack_cnt)])
+            [StockBlockLayer(self.hparams.time_step, self.hparams.node_count, self.hparams.multi_layer, stack_cnt=i) for i in range(self.hparams.stack_cnt)])
         self.fc = nn.Sequential(
-            nn.Linear(int(self.time_step), int(self.time_step)),
+            nn.Linear(int(self.hparams.time_step), int(self.hparams.time_step)),
             nn.LeakyReLU(),
-            nn.Linear(int(self.time_step), self.horizon),
+            nn.Linear(int(self.hparams.time_step), self.hparams.horizon),
         )
-        self.leakyrelu = nn.LeakyReLU(self.alpha)
+        self.leakyrelu = nn.LeakyReLU(leaky_rate)
         self.dropout = nn.Dropout(p=dropout_rate)
-        self.to(device)
+        self.loss_fn = loss_fn_mod()
+
+        self.mse = MeanSquaredError()
+        self.mape = MeanAbsolutePercentageError()
+        self.mae = MeanAbsoluteError()
 
     def get_laplacian(self, graph, normalize):
         """
@@ -172,7 +190,7 @@ class Model(nn.Module):
         mul_L, attention = self.latent_correlation_layer(x)
         X = x.unsqueeze(1).permute(0, 1, 3, 2).contiguous()
         result = []
-        for stack_i in range(self.stack_cnt):
+        for stack_i in range(self.hparams.stack_cnt):
             forecast, X = self.stock_block[stack_i](X, mul_L)
             result.append(forecast)
         forecast = result[0] + result[1]
@@ -181,3 +199,51 @@ class Model(nn.Module):
             return forecast.unsqueeze(1).squeeze(-1), attention
         else:
             return forecast.permute(0, 2, 1).contiguous(), attention
+
+    def training_step(self, batch: torch.Tensor, batch_idx: int = 0) -> torch.Tensor:
+        X, y = batch
+        forecast, _ = self(X)
+        loss = self.loss_fn(forecast, y)
+        self.log(r'train/loss', loss, prog_bar=True, on_step=True, on_epoch=True)
+
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int = 0) -> Dict[str, torch.Tensor]:
+        X, y = batch
+        forecast, _ = self(X)
+
+        metrics_dict = {
+            r"val/loss": self.loss_fn(forecast, y),
+            r"val/mse": self.mse(forecast, y),
+            r"val/mae": self.mae(forecast, y),
+            r"val/mape": self.mape(forecast, y),
+        }
+
+        self.log_dict(metrics_dict, on_epoch=True)
+        return metrics_dict
+
+    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int = 0) -> Dict[str, torch.Tensor]:
+        X, y = batch
+        forecast, _ = self(X)
+
+        metrics_dict = {
+            r"val/loss": self.loss_fn(forecast, y),
+            r"val/mse": self.mse(forecast, y),
+            r"val/mae": self.mae(forecast, y),
+            r"val/mape": self.mape(forecast, y),
+        }
+
+        return metrics_dict
+
+    def predict_step(self, batch: torch.Tensor) -> torch.Tensor:
+        return self(batch)
+
+    def configure_optimizers(self) -> Dict:
+        optimizer = torch.optim.SGD(
+            self.parameters(), 
+            lr=self.hparams.learning_rate, 
+            momentum=self.hparams.momentum, 
+            weight_decay=self.hparams.weight_decay
+        )
+
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
+
+        return {'optimizer': optimizer, 'lr_scheduler': scheduler}
