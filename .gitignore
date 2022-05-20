@@ -40,3 +40,4 @@ output/
 .idea/
 test.py
 lightning_logs/
+.ipynb_checkpoints/

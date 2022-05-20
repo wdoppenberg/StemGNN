@@ -90,11 +90,11 @@ class StemGNN(pl.LightningModule):
     def __init__(
             self,
             node_count: int,
-            stack_cnt: int, 
-            time_step: int, 
-            multi_layer: int, 
-            horizon: int = 1, 
-            dropout_rate: float = 0.5, 
+            stack_cnt: int,
+            time_step: int,
+            multi_layer: int,
+            horizon: int = 1,
+            dropout_rate: float = 0.5,
             leaky_rate: float = 0.2,
             loss_fn_mod: nn.Module = nn.MSELoss,
             learning_rate: float = 0.0001,
@@ -118,13 +118,14 @@ class StemGNN(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(int(self.hparams.time_step), self.hparams.horizon),
         )
-        self.leakyrelu = nn.LeakyReLU(leaky_rate)
-        self.dropout = nn.Dropout(p=dropout_rate)
-        self.loss_fn = loss_fn_mod()
+        
+        self._leakyrelu = nn.LeakyReLU(leaky_rate)
+        self._dropout = nn.Dropout(p=dropout_rate)
+        self._loss_fn = loss_fn_mod()
 
-        self.mse = MeanSquaredError()
-        self.mape = MeanAbsolutePercentageError()
-        self.mae = MeanAbsoluteError()
+        self._mse = MeanSquaredError()
+        self._mape = MeanAbsolutePercentageError(epsilon=1e-3)
+        self._mae = MeanAbsoluteError()
 
     def get_laplacian(self, graph, normalize):
         """
@@ -179,9 +180,9 @@ class StemGNN(pl.LightningModule):
         data = key.repeat(1, 1, N).view(bat, N * N, 1) + query.repeat(1, N, 1)
         data = data.squeeze(2)
         data = data.view(bat, N, -1)
-        data = self.leakyrelu(data)
+        data = self._leakyrelu(data)
         attention = F.softmax(data, dim=2)
-        attention = self.dropout(attention)
+        attention = self._dropout(attention)
         return attention
 
     def graph_fft(self, input, eigenvectors):
@@ -204,7 +205,7 @@ class StemGNN(pl.LightningModule):
     def training_step(self, batch: torch.Tensor, batch_idx: int = 0) -> torch.Tensor:
         X, y = batch
         forecast, _ = self(X)
-        loss = self.loss_fn(forecast, y)
+        loss = self._loss_fn(forecast, y)
         self.log(r'train/loss', loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
@@ -212,11 +213,15 @@ class StemGNN(pl.LightningModule):
         X, y = batch
         forecast, _ = self(X)
 
+        mse = self._mse(forecast, y)
+        mape = self._mape(forecast, y)
+        mae = self._mae(forecast, y)
+
         metrics_dict = {
-            r"val/loss": self.loss_fn(forecast, y),
-            r"val/mse": self.mse(forecast, y),
-            r"val/mae": self.mae(forecast, y),
-            r"val/mape": self.mape(forecast, y),
+            r"val/mse": mse,
+            r"val/mae": mae,
+            r"val/mape": mape,
+            "hp_metric": mse
         }
 
         self.log_dict(metrics_dict, on_epoch=True)
@@ -227,10 +232,10 @@ class StemGNN(pl.LightningModule):
         forecast, _ = self(X)
 
         metrics_dict = {
-            r"val/loss": self.loss_fn(forecast, y),
-            r"val/mse": self.mse(forecast, y),
-            r"val/mae": self.mae(forecast, y),
-            r"val/mape": self.mape(forecast, y),
+            r"val/loss": self._loss_fn(forecast, y),
+            r"val/mse": self._mse(forecast, y),
+            r"val/mae": self._mae(forecast, y),
+            r"val/mape": 100 * self._mape(forecast, y),
         }
 
         return metrics_dict
@@ -246,6 +251,6 @@ class StemGNN(pl.LightningModule):
             weight_decay=self.hparams.weight_decay
         )
 
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.2)
 
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}

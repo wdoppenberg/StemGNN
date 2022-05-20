@@ -16,9 +16,8 @@ parser.add_argument('--train_length', type=float, default=7)
 parser.add_argument('--valid_length', type=float, default=2)
 parser.add_argument('--test_length', type=float, default=1)
 parser.add_argument('--epoch', type=int, default=50)
-parser.add_argument('--lr', type=float, default=1e-4)
+parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--multi_layer', type=int, default=5)
-parser.add_argument('--device', type=str, default='cpu')
 parser.add_argument('--validate_freq', type=int, default=1)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--norm_method', type=str, default='min_max')
@@ -57,19 +56,18 @@ if __name__ == '__main__':
     )
 
     early_stopping_callback = pl.callbacks.EarlyStopping(
-        monitor='val/loss',
+        monitor='val/mse',
         patience=5,
         verbose=True,
         mode='min',
         min_delta=0.001,
     )
 
-
     trainer = pl.Trainer(
         gpus=1,
         max_epochs=args.epoch,
         detect_anomaly=True,
-        early_stop_callback=[early_stopping_callback],
+        callbacks=[early_stopping_callback],
     )
 
     trainer.fit(model, data_module)
